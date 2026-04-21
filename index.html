@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>体重管理アプリ（1ファイル）</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 800px; margin: 20px auto; padding: 0 10px; }
+  h1 { font-size: 1.4rem; }
+  label { display: block; margin-top: 10px; }
+  input[type="date"], input[type="number"] { padding: 4px; }
+  button { margin-top: 10px; padding: 6px 12px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+  th, td { border-bottom: 1px solid #ddd; padding: 4px 6px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  .actions button { padding: 2px 6px; font-size: 0.8rem; }
+  #clearAll { margin-left: 10px; background: #fdd; }
+</style>
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- PWA Settings -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" href="icon-192.png">
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('service-worker.js');
+        }
+    </script>
+</head>
+<body>
+<h1>体重管理アプリ</h1>
+
+<section>
+  <label>
+    日付：
+    <input type="date" id="date">
+  </label>
+  <label>
+    体重（kg）：
+    <input type="number" id="weight" step="0.1" min="0">
+  </label>
+  <button id="addBtn">記録する</button>
+  <button id="clearAll">全データ削除</button>
+</section>
+
+<section>
+  <h2>グラフ</h2>
+  <canvas id="weightChart" height="120"></canvas>
+</section>
+
+<section>
+  <h2>記録一覧</h2>
+  <table>
+    <thead>
+      <tr><th>日付</th><th>体重(kg)</th><th>操作</th></tr>
+    </thead>
+    <tbody id="recordsBody"></tbody>
+  </table>
+</section>
+
+<script>
+  const STORAGE_KEY = 'weight_records_v1';
+
+  function loadRecords() {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    try {
+      const data = JSON.parse(raw);
+      return Array.isArray(data) ? data : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveRecords(records) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+  }
+
+  function addRecord(date, weight) {
+    const records = loadRecords();
+    // 同じ日付があれば上書き
+    const idx = records.findIndex(r => r.date === date);
+    if (idx >= 0) {
+      records[idx].weight = weight;
+    } else {
+      records.push({ date, weight });
+    }
+    // 日付順にソート
+    records.sort((a, b) => a.date.localeCompare(b.date));
+    saveRecords(records);
+    return records;
+  }
+
+  function deleteRecord(date) {
+    const records = loadRecords().filter(r => r.date !== date);
+    saveRecords(records);
+    return records;
+  }
+
+  // UI更新
+  const recordsBody = document.getElementById('recordsBody');
+  let chart;
+
+  function renderTable(records) {
+    recordsBody.innerHTML = '';
+    for (const r of records) {
+      const tr = document.createElement('tr');
+      const tdDate = document.createElement('td');
+      const tdWeight = document.createElement('td');
+      const tdActions = document.createElement('td');
+      tdActions.className = 'actions';
+
+      tdDate.textContent = r.date;
+      tdWeight.textContent = r.weight.toFixed(1);
+
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '削除';
+      delBtn.onclick = () => {
+        const updated = deleteRecord(r.date);
+        updateUI(updated);
+      };
+
+      tdActions.appendChild(delBtn);
+      tr.appendChild(tdDate);
+      tr.appendChild(tdWeight);
+      tr.appendChild(tdActions);
+      recordsBody.appendChild(tr);
+    }
+  }
+
+  function renderChart(records) {
+    const ctx = document.getElementById('weightChart').getContext('2d');
+    const labels = records.map(r => r.date);
+    const data = records.map(r => r.weight);
+
+    if (chart) chart.destroy();
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: '体重 (kg)',
+          data,
+          borderColor: '#007bff',
+          backgroundColor: 'rgba(0,123,255,0.15)',
+          tension: 0.2,
+          fill: true,
+          pointRadius: 3
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: {
+            beginAtZero: false
+          }
+        }
+      }
+    });
+  }
+
+  function updateUI(records) {
+    renderTable(records);
+    renderChart(records);
+  }
+
+  // イベント
+  document.getElementById('addBtn').addEventListener('click', () => {
+    const date = document.getElementById('date').value;
+    const weightStr = document.getElementById('weight').value;
+    const weight = parseFloat(weightStr);
+
+    if (!date) {
+      alert('日付を入力してください');
+      return;
+    }
+    if (isNaN(weight)) {
+      alert('体重を入力してください');
+      return;
+    }
+
+    const records = addRecord(date, weight);
+    updateUI(records);
+    document.getElementById('weight').value = '';
+  });
+
+  document.getElementById('clearAll').addEventListener('click', () => {
+    if (!confirm('本当に全ての記録を削除しますか？')) return;
+    saveRecords([]);
+    updateUI([]);
+  });
+
+  // 初期表示
+  window.addEventListener('load', () => {
+    // デフォルトで今日の日付
+    const today = new Date().toISOString().slice(0, 10);
+    document.getElementById('date').value = today;
+    const records = loadRecords();
+    updateUI(records);
+  });
+</script>
+</body>
+</html>
